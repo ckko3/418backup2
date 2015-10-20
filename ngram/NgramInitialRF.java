@@ -14,9 +14,9 @@ import org.apache.hadoop.util.*;
 import org.apache.hadoop.conf.Configured;
 import org.apache.hadoop.conf.Configuration;
 
-public class NgramInitialCount extends Configured implements Tool {
+public class NgramInitialRF extends Configured implements Tool {
 
-    public static class NgramInitialCountMapper extends 
+    public static class NgramInitialRfMapper extends 
         Mapper<LongWritable, Text, Text, IntWritable> {
 
         private HashMap<String, Integer> NgramMap = new HashMap<>();
@@ -29,24 +29,30 @@ public class NgramInitialCount extends Configured implements Tool {
             List<Character> elms = null;
             while ((elms = parser.next()) != null) {
                 StringBuilder sb = new StringBuilder();
+                StringBuilder starsb = new StringBuilder();
                 for (char elm: elms) {
                     sb.append(elm);
                     sb.append(" ");
+		        starsb.append(elm);
                 }
                 parser.shift();
                 sb.deleteCharAt(sb.length()-1);
+		        starsb.append(" *");
                 String gram = sb.toString();
+		        String stargram = sb.toString();
 
                 int count = NgramMap.containsKey(gram) ? NgramMap.get(gram) : 0;
+		        int starcnt = NgramMap.containsKey(stargram) ? NgramMap.get(stargram) : 0;
                 NgramMap.put(gram, count+1);
+		        NgramMap.put(stargram, starcnt+1);
+                }
             }
-        }
 
         protected void setup(Context context)
                 throws IOException, InterruptedException {
             Configuration conf = context.getConfiguration();
             int adjWordCount = conf.getInt("adjWordCount", 2);
-	    double theta = conf.getDouble("theta", 3);
+	        double theta = conf.getDouble("theta", 0.6);
             parser = new NgramParser(adjWordCount);
         }
 
@@ -60,7 +66,7 @@ public class NgramInitialCount extends Configured implements Tool {
         }
     }
 
-    public static class NgramInitialCountReducer extends 
+    public static class NgramInitialRFReducer extends 
         Reducer<Text, IntWritable, Text, IntWritable> {
 
         public void reduce(Text key, Iterable<IntWritable> values,
@@ -69,6 +75,7 @@ public class NgramInitialCount extends Configured implements Tool {
             for (IntWritable val : values) {
                 sum += val.get();
             }
+	    //if (rf >= theta )
             context.write(key, new IntWritable(sum));
         }
     }
@@ -81,11 +88,11 @@ public class NgramInitialCount extends Configured implements Tool {
             return -1;
         }
         conf.setInt("adjWordCount", Integer.parseInt(args[2]));
-	conf.setDouble("theta", Double.parseDouble(args[3]));
+	    conf.setDouble("theta", Double.parseDouble(args[3]));
         Job job = JobBuilder.parseInputAndOutput(this, conf, args);
 
-        job.setMapperClass(NgramInitialCountMapper.class);
-        job.setReducerClass(NgramInitialCountReducer.class);
+        job.setMapperClass(NgramInitialRFMapper.class);
+        job.setReducerClass(NgramInitialRFReducer.class);
 
         job.setOutputKeyClass(Text.class);
         job.setOutputValueClass(IntWritable.class);
@@ -95,7 +102,7 @@ public class NgramInitialCount extends Configured implements Tool {
     }
 
     public static void main(String[] args) throws Exception {
-        int exitCode = ToolRunner.run(new NgramInitialCount(), args);
+        int exitCode = ToolRunner.run(new NgramInitialRF(), args);
         System.exit(exitCode);
     }
 }
