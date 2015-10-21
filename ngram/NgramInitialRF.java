@@ -7,6 +7,7 @@ import java.io.IOException;
 import java.util.HashMap;
 import java.util.Map;
 import java.util.List;
+import java.util.Set;
 
 import org.apache.hadoop.io.*;
 import org.apache.hadoop.mapreduce.*;
@@ -16,11 +17,11 @@ import org.apache.hadoop.conf.Configuration;
 
 public class NgramInitialRF extends Configured implements Tool {
 
-    public static class NgramInitialRfMapper extends 
-        Mapper<LongWritable, Text, Text, IntWritable> {
+    public static class NgramInitialRFMapper extends 
+        Mapper<LongWritable, Text, Text, MapWritable> {
 
-       private HashMap<Character, Map<String, Integer>> NgramMap = new HashMap<>();
-        private HashMap<String, Integer> Stripe = new HashMap<>();
+        //private HashMap<String, Integer> NgramMap = new HashMap<>();
+        private MapWritable stripe = new MapWritable();
         private NgramParser parser;
 
         public void map(LongWritable key, Text value, Context context)
@@ -29,21 +30,25 @@ public class NgramInitialRF extends Configured implements Tool {
             parser.addLine(value.toString());
             List<Character> elms = null;
             while ((elms = parser.next()) != null) {
-                StringBuilder sb = new StringBuilder();
-                char term = '\0';
+                stripe.clear();
+                StringBuilder head = new StringBuilder();
+                StringBuilder tail = new StringBuilder();
                 for (char elm: elms) {
-                    if (term == '\0') term = elm;
-                    else {
-                        sb.append(elm);
-                        sb.append(" ");
-                    }
+                    head.append(elm);
+                    break;
+                }
+                for (char elm: elms) {
+                   tail.append(elm);
+                   tail.append(" ");
                 }
                 parser.shift();
-                sb.deleteCharAt(sb.length()-1);
-                String gram = sb.toString();
-                int count = Stripe.containsKey(gram) ? Stripe.get(gram)     : 0;
-                Stripe.put(gram, count+1);
-                NgramMap.put(term, Stripe);
+                //tail.deleteCharAt(0);
+                //tail.deleteCharAt(1);
+                tail.deleteCharAt(tail.length()-1);
+                String headstr = head.toString();
+                String tailstr = tail.toString();
+                stripe.put(new Text(tailstr), new IntWritable(1));
+                context.write(new Text(headstr), stripe);
                 }
             }
 
@@ -54,29 +59,58 @@ public class NgramInitialRF extends Configured implements Tool {
             parser = new NgramParser(adjWordCount);
         }
 
-        protected void cleanup(Context context)
-                throws IOException, InterruptedException {
+//        protected void cleanup(Context context)
+  //              throws IOException, InterruptedException {
 
-            for (Map.Entry<Character, Map<String, Integer>> entry : NgramMap.entrySet()) {
-                context.write(new Text(entry.getKey()),
-                              new MapWritable(entry.getValue()));
-            }
-        }
+//            for (Map.Entry<String, Integer> entry : NgramMap.entrySet()) {
+  //              context.write(new Text(entry.getKey()),
+    //                          new IntWritable(entry.getValue()));
+   //         }
+   //     }
     }
 
     public static class NgramInitialRFReducer extends 
-        Reducer<Text, IntWritable, Text, IntWritable> {
+        Reducer<Text, MapWritable, Text, DoubleWritable> {
 
-        public void reduce(Text key, Iterable<IntWritable> values,
-                Context context) throws IOException, InterruptedException {
-            int sum = 0;
+        private MapWritable sumstripe = new MapWritable();
+
+        public void reduce(Text key, Iterable<MapWritable> values,
+                Context context) throws IOException, InterruptedException {        
+
             Configuration conf = context.getConfiguration();
             double theta = Double.parseDouble(conf.get("theta"));
-            //for (IntWritable val : values)  {
-             //   sum += val.get();
-            //}
-	    //if (rf >= theta )
-            //context.write(key, new IntWritable(sum));
+
+            sumstripe.clear();
+
+            for (MapWritable value : values){
+                addstripe(value);
+            }
+
+            int total = 0;;
+            for (Map.Entry<Writable, Writable> entry : sumstripe.entrySet()){
+                total += Integer.parseInt(entry.getValue().toString());
+            }
+
+            for (Map.Entry<Writable, Writable> entry : sumstripe.entrySet()){
+                StringBuilder sb = new StringBuilder();
+                String out = sb.append(entry.getKey().toString()).toString();
+                int current = Integer.parseInt(entry.getValue().toString());
+                double rf = (double)current / (double)total;
+                context.write(new Text(out), new DoubleWritable(rf));
+            }
+        }
+
+        private void addstripe(MapWritable map){
+            Set<Writable> allkey = map.keySet();
+            for (Writable key : allkey) {
+                IntWritable keyin = (IntWritable) map.get(key);
+                if (sumstripe.containsKey(key)) {
+                    IntWritable keyout = (IntWritable) sumstripe.get(key);
+                    keyout.set(keyout.get() + keyin.get());
+                } else {
+                    sumstripe.put(key, keyin);
+                }
+            }
         }
     }
 
@@ -93,9 +127,11 @@ public class NgramInitialRF extends Configured implements Tool {
 
         job.setMapperClass(NgramInitialRFMapper.class);
         job.setReducerClass(NgramInitialRFReducer.class);
-
+        
+        job.setMapOutputKeyClass(Text.class);
+        job.setMapOutputValueClass(MapWritable.class);
         job.setOutputKeyClass(Text.class);
-        job.setOutputValueClass(IntWritable.class);
+        job.setOutputValueClass(DoubleWritable.class);
 
         job.waitForCompletion(true);
         return 0;
