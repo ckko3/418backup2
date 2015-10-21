@@ -19,7 +19,8 @@ public class NgramInitialRF extends Configured implements Tool {
     public static class NgramInitialRfMapper extends 
         Mapper<LongWritable, Text, Text, IntWritable> {
 
-        private HashMap<String, Integer> NgramMap = new HashMap<>();
+       private HashMap<Character, Map<String, Integer>> NgramMap = new HashMap<>();
+        private HashMap<String, Integer> Stripe = new HashMap<>();
         private NgramParser parser;
 
         public void map(LongWritable key, Text value, Context context)
@@ -29,22 +30,20 @@ public class NgramInitialRF extends Configured implements Tool {
             List<Character> elms = null;
             while ((elms = parser.next()) != null) {
                 StringBuilder sb = new StringBuilder();
-                StringBuilder starsb = new StringBuilder();
+                char term = '\0';
                 for (char elm: elms) {
-                    sb.append(elm);
-                    sb.append(" ");
-		        starsb.append(elm);
+                    if (term == '\0') term = elm;
+                    else {
+                        sb.append(elm);
+                        sb.append(" ");
+                    }
                 }
                 parser.shift();
                 sb.deleteCharAt(sb.length()-1);
-		        starsb.append(" *");
                 String gram = sb.toString();
-		        String stargram = sb.toString();
-
-                int count = NgramMap.containsKey(gram) ? NgramMap.get(gram) : 0;
-		        int starcnt = NgramMap.containsKey(stargram) ? NgramMap.get(stargram) : 0;
-                NgramMap.put(gram, count+1);
-		        NgramMap.put(stargram, starcnt+1);
+                int count = Stripe.containsKey(gram) ? Stripe.get(gram)     : 0;
+                Stripe.put(gram, count+1);
+                NgramMap.put(term, Stripe);
                 }
             }
 
@@ -52,16 +51,15 @@ public class NgramInitialRF extends Configured implements Tool {
                 throws IOException, InterruptedException {
             Configuration conf = context.getConfiguration();
             int adjWordCount = conf.getInt("adjWordCount", 2);
-	        double theta = conf.getDouble("theta", 0.6);
             parser = new NgramParser(adjWordCount);
         }
 
         protected void cleanup(Context context)
                 throws IOException, InterruptedException {
 
-            for (Map.Entry<String, Integer> entry : NgramMap.entrySet()) {
+            for (Map.Entry<Character, Map<String, Integer>> entry : NgramMap.entrySet()) {
                 context.write(new Text(entry.getKey()),
-                              new IntWritable(entry.getValue()));
+                              new MapWritable(entry.getValue()));
             }
         }
     }
@@ -72,11 +70,13 @@ public class NgramInitialRF extends Configured implements Tool {
         public void reduce(Text key, Iterable<IntWritable> values,
                 Context context) throws IOException, InterruptedException {
             int sum = 0;
-            for (IntWritable val : values) {
-                sum += val.get();
-            }
+            Configuration conf = context.getConfiguration();
+            double theta = Double.parseDouble(conf.get("theta"));
+            //for (IntWritable val : values)  {
+             //   sum += val.get();
+            //}
 	    //if (rf >= theta )
-            context.write(key, new IntWritable(sum));
+            //context.write(key, new IntWritable(sum));
         }
     }
 
@@ -88,7 +88,7 @@ public class NgramInitialRF extends Configured implements Tool {
             return -1;
         }
         conf.setInt("adjWordCount", Integer.parseInt(args[2]));
-	    conf.setDouble("theta", Double.parseDouble(args[3]));
+	    conf.set("theta", args[3]);
         Job job = JobBuilder.parseInputAndOutput(this, conf, args);
 
         job.setMapperClass(NgramInitialRFMapper.class);
