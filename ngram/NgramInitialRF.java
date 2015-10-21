@@ -20,7 +20,6 @@ public class NgramInitialRF extends Configured implements Tool {
     public static class NgramInitialRFMapper extends 
         Mapper<LongWritable, Text, Text, MapWritable> {
 
-        //private HashMap<String, Integer> NgramMap = new HashMap<>();
         private MapWritable stripe = new MapWritable();
         private NgramParser parser;
 
@@ -42,8 +41,6 @@ public class NgramInitialRF extends Configured implements Tool {
                    tail.append(" ");
                 }
                 parser.shift();
-                //tail.deleteCharAt(0);
-                //tail.deleteCharAt(1);
                 tail.deleteCharAt(tail.length()-1);
                 String headstr = head.toString();
                 String tailstr = tail.toString();
